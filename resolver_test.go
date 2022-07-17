@@ -49,7 +49,7 @@ func mockDNSAnswerTXT(name string, records []string) *dns.Msg {
 	}
 }
 
-func mockDoHResolver(t *testing.T, msgs map[uint16]*dns.Msg) *httptest.Server {
+func mockDNSSECResolver(t *testing.T, msgs map[uint16]*dns.Msg) *httptest.Server {
 	return httptest.NewServer(http.HandlerFunc(func(res http.ResponseWriter, req *http.Request) {
 		body, err := ioutil.ReadAll(req.Body)
 		if err != nil {
@@ -71,7 +71,7 @@ func mockDoHResolver(t *testing.T, msgs map[uint16]*dns.Msg) *httptest.Server {
 
 func TestLookupIPAddr(t *testing.T) {
 	domain := "example.com"
-	resolver := mockDoHResolver(t, map[uint16]*dns.Msg{
+	resolver := mockDNSSECResolver(t, map[uint16]*dns.Msg{
 		dns.TypeA:    mockDNSAnswerA(dns.Fqdn(domain), net.IPv4(127, 0, 0, 1)),
 		dns.TypeAAAA: mockDNSAnswerAAAA(dns.Fqdn(domain), net.IPv6loopback),
 	})
@@ -119,7 +119,7 @@ func TestLookupIPAddr(t *testing.T) {
 
 func TestLookupTXT(t *testing.T) {
 	domain := "example.com"
-	resolver := mockDoHResolver(t, map[uint16]*dns.Msg{
+	resolver := mockDNSSECResolver(t, map[uint16]*dns.Msg{
 		dns.TypeTXT: mockDNSAnswerTXT(dns.Fqdn(domain), []string{"dnslink=/ipns/example.com"}),
 	})
 	defer resolver.Close()
@@ -150,7 +150,7 @@ func TestLookupTXT(t *testing.T) {
 
 func TestLookupCache(t *testing.T) {
 	domain := "example.com"
-	resolver := mockDoHResolver(t, map[uint16]*dns.Msg{
+	resolver := mockDNSSECResolver(t, map[uint16]*dns.Msg{
 		dns.TypeTXT: mockDNSAnswerTXT(dns.Fqdn(domain), []string{"dnslink=/ipns/example.com"}),
 	})
 	defer resolver.Close()

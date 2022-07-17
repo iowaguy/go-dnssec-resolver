@@ -17,7 +17,7 @@ const (
 	dohMimeType = "application/dns-message"
 )
 
-var log = logging.Logger("doh")
+var log = logging.Logger("dnssec")
 
 func doRequest(ctx context.Context, url string, m *dns.Msg) (*dns.Msg, error) {
 	data, err := m.Pack()

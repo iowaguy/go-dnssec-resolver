@@ -1,4 +1,4 @@
-module github.com/libp2p/go-doh-resolver
+module github.com/libp2p/go-dnssec-resolver
 
 go 1.17
 
