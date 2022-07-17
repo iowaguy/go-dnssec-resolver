@@ -20,6 +20,7 @@ type Resolver struct {
 	// RR cache
 	ipCache     map[string]ipAddrEntry
 	txtCache    map[string]txtEntry
+	proofCache  map[string]proofEntry
 	maxCacheTTL time.Duration
 }
 
@@ -30,6 +31,11 @@ type ipAddrEntry struct {
 
 type txtEntry struct {
 	txt    []string
+	expire time.Time
+}
+
+type proofEntry struct {
+	proof  []dns.RR
 	expire time.Time
 }
 
@@ -115,6 +121,11 @@ func (r *Resolver) LookupIPAddr(ctx context.Context, domain string) (result []ne
 	return result, nil
 }
 
+func (r *Resolver) SecureLookupTXT(ctx context.Context, domain string) ([]string, []dns.RR, error) {
+		s, err := r.LookupTXT(ctx, domain)
+		return s, nil, err
+}
+
 func (r *Resolver) LookupTXT(ctx context.Context, domain string) ([]string, error) {
 	result, ok := r.getCachedTXT(domain)
 	if ok {
@@ -159,6 +170,24 @@ func (r *Resolver) cacheIPAddr(domain string, ips []net.IPAddr, ttl time.Duratio
 
 	fqdn := dns.Fqdn(domain)
 	r.ipCache[fqdn] = ipAddrEntry{ips, time.Now().Add(ttl)}
+}
+
+func (r *Resolver) getCachedProof(domain string) ([]dns.RR, bool) {
+	r.mx.Lock()
+	defer r.mx.Unlock()
+
+	fqdn := dns.Fqdn(domain)
+	entry, ok := r.proofCache[fqdn]
+	if !ok {
+		return nil, false
+	}
+
+	if time.Now().After(entry.expire) {
+		delete(r.proofCache, fqdn)
+		return nil, false
+	}
+
+	return entry.proof, true
 }
 
 func (r *Resolver) getCachedTXT(domain string) ([]string, bool) {
