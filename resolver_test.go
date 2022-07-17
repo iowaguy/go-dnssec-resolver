@@ -12,6 +12,9 @@ import (
 	"github.com/miekg/dns"
 )
 
+type void struct{}
+var member void
+
 func mockDNSHeader(name string, rrType uint16) dns.RR_Header {
 	return dns.RR_Header{Name: name, Rrtype: rrType, Class: dns.ClassINET, Ttl: 300}
 }
@@ -34,6 +37,26 @@ func mockDNSAnswerAAAA(name string, ip net.IP) *dns.Msg {
 				Hdr:  mockDNSHeader(name, dns.TypeAAAA),
 				AAAA: ip,
 			},
+		},
+	}
+}
+
+func mockDNSSECAnswerTXT(name string, records []string) *dns.Msg {
+	dnsKey := &dns.DNSKEY{
+				Hdr:  mockDNSHeader(name, dns.TypeDNSKEY),
+				Flags: 1,
+				Protocol: 1,
+				Algorithm: 1,
+			}
+	// Using this function to generate a valid public key
+	_, _ = dnsKey.Generate(1024)
+	return &dns.Msg{
+		Answer: []dns.RR{
+			&dns.TXT{
+				Hdr: mockDNSHeader(name, dns.TypeTXT),
+				Txt: records,
+			},
+			dnsKey,
 		},
 	}
 }
@@ -148,6 +171,52 @@ func TestLookupTXT(t *testing.T) {
 	}
 }
 
+func TestSecureLookupTXT(t *testing.T) {
+	domain := "example.com"
+	resolver := mockDNSSECResolver(t, map[uint16]*dns.Msg{
+		dns.TypeTXT: mockDNSSECAnswerTXT(dns.Fqdn(domain), []string{"dnslink=/ipns/example.com"}),
+	})
+	defer resolver.Close()
+
+	r, err := NewResolver("")
+	if err != nil {
+		t.Fatal("resolver cannot be initialised")
+	}
+	r.url = resolver.URL
+
+	txt, proof, err := r.SecureLookupTXT(context.Background(), domain)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(txt) == 0 {
+		t.Fatal("got no TXT entries")
+	}
+
+	// check the proof
+	if proof == nil {
+		t.Fatal("Response should include a valid proof")
+	}
+
+	// check the cache
+	txt2, ok := r.getCachedTXT(domain)
+	if !ok {
+		t.Fatal("expected cache to be populated")
+	}
+	if !sameTXT(txt, txt2) {
+		t.Fatal("expected cache to contain the same txt entries")
+	}
+
+
+	// check the cache
+	proof2, ok := r.getCachedProof(domain)
+	if !ok {
+		t.Fatal("expected cache to be populated")
+	}
+	if !sameProof(proof, proof2) {
+		t.Fatal("expected cache to contain the same txt entries")
+	}
+}
+
 func TestLookupCache(t *testing.T) {
 	domain := "example.com"
 	resolver := mockDNSSECResolver(t, map[uint16]*dns.Msg{
@@ -215,5 +284,26 @@ func sameTXT(a, b []string) bool {
 		}
 	}
 
+	return true
+}
+
+func sameProof(a, b []dns.RR) bool {
+	if len(a) != len(b) {
+		return false
+	}
+
+	// Build set of records
+	set := make(map[dns.RR]void)
+	for i := range a {
+		set[a[i]] = member
+	}
+
+	// Check that sets are equal. Note do not need to check the reverse because
+	// the lengths of both sets is the same.
+	for i := range b {
+		if _, ok := set[b[i]]; !ok {
+			return false
+		}
+	}
 	return true
 }
