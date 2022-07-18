@@ -66,6 +66,7 @@ func NewResolver(url string, opts ...Option) (*Resolver, error) {
 		url:         url,
 		ipCache:     make(map[string]ipAddrEntry),
 		txtCache:    make(map[string]txtEntry),
+		proofCache:  make(map[string]proofEntry),
 		maxCacheTTL: time.Duration(math.MaxUint32) * time.Second,
 	}
 
@@ -121,9 +122,23 @@ func (r *Resolver) LookupIPAddr(ctx context.Context, domain string) (result []ne
 	return result, nil
 }
 
+// Get TXT record using DNSSEC
 func (r *Resolver) SecureLookupTXT(ctx context.Context, domain string) ([]string, []dns.RR, error) {
-		s, err := r.LookupTXT(ctx, domain)
-		return s, nil, err
+	txt, txtOk := r.getCachedTXT(domain)
+	proof, proofOk := r.getCachedProof(domain)
+	if !txtOk || !proofOk {
+		txt, proof, ttl, err := doRequestTXTSecure(ctx, r.url, domain)
+		if err != nil {
+			return nil, nil, err
+		}
+
+		cacheTTL := minTTL(time.Duration(ttl)*time.Second, r.maxCacheTTL)
+		r.cacheTXT(domain, txt, cacheTTL)
+		r.cacheProof(domain, proof, cacheTTL)
+		return txt, proof, nil
+	}
+
+	return txt, proof, nil
 }
 
 func (r *Resolver) LookupTXT(ctx context.Context, domain string) ([]string, error) {
@@ -132,7 +147,7 @@ func (r *Resolver) LookupTXT(ctx context.Context, domain string) ([]string, erro
 		return result, nil
 	}
 
-	result, ttl, err := doRequestTXT(ctx, r.url, domain)
+	result, ttl, err := doRequestTXTInsecure(ctx, r.url, domain)
 	if err != nil {
 		return nil, err
 	}
@@ -218,6 +233,18 @@ func (r *Resolver) cacheTXT(domain string, txt []string, ttl time.Duration) {
 
 	fqdn := dns.Fqdn(domain)
 	r.txtCache[fqdn] = txtEntry{txt, time.Now().Add(ttl)}
+}
+
+func (r *Resolver) cacheProof(domain string, proof []dns.RR, ttl time.Duration) {
+	if ttl == 0 {
+		return
+	}
+
+	r.mx.Lock()
+	defer r.mx.Unlock()
+
+	fqdn := dns.Fqdn(domain)
+	r.proofCache[fqdn] = proofEntry{proof, time.Now().Add(ttl)}
 }
 
 func minTTL(a, b time.Duration) time.Duration {

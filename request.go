@@ -119,19 +119,36 @@ func doRequestAAAA(ctx context.Context, url string, domain string) ([]net.IPAddr
 	return result, ttl, nil
 }
 
-func doRequestTXT(ctx context.Context, url string, domain string) ([]string, uint32, error) {
-	fqdn := dns.Fqdn(domain)
 
+func doRequestTXTSecure(ctx context.Context, url string, domain string) ([]string, []dns.RR, uint32, error) {
+	fqdn := dns.Fqdn(domain)
+	m := new(dns.Msg)
+
+	// 4096 is the UDP buffer size
+	m.SetEdns0(4096, true)
+	m.SetQuestion(fqdn, dns.TypeTXT)
+
+	return doRequestTXT(ctx, url, domain, m)
+}
+
+func doRequestTXTInsecure(ctx context.Context, url string, domain string) ([]string, uint32, error) {
+	fqdn := dns.Fqdn(domain)
 	m := new(dns.Msg)
 	m.SetQuestion(fqdn, dns.TypeTXT)
 
-	r, err := doRequest(ctx, url, m)
+	txt, _, ttl, err := doRequestTXT(ctx, url, domain, m)
+	return txt, ttl, err
+}
+
+func doRequestTXT(ctx context.Context, url string, domain string, msg *dns.Msg) ([]string, []dns.RR, uint32, error) {
+	r, err := doRequest(ctx, url, msg)
 	if err != nil {
-		return nil, 0, err
+		return nil, nil, 0, err
 	}
 
 	var ttl uint32
 	var result []string
+	var proof []dns.RR
 	for _, rr := range r.Answer {
 		switch v := rr.(type) {
 		case *dns.TXT:
@@ -139,11 +156,35 @@ func doRequestTXT(ctx context.Context, url string, domain string) ([]string, uin
 			if ttl == 0 || v.Hdr.Ttl < ttl {
 				ttl = v.Hdr.Ttl
 			}
-
+		case *dns.DNSKEY:
+			proof = append(proof, v)
+			if ttl == 0 || v.Hdr.Ttl < ttl {
+				ttl = v.Hdr.Ttl
+			}
+		case *dns.DS:
+			proof = append(proof, v)
+			if ttl == 0 || v.Hdr.Ttl < ttl {
+				ttl = v.Hdr.Ttl
+			}
+		case *dns.RRSIG:
+			proof = append(proof, v)
+			if ttl == 0 || v.Hdr.Ttl < ttl {
+				ttl = v.Hdr.Ttl
+			}
+		case *dns.CNAME:
+			proof = append(proof, v)
+			if ttl == 0 || v.Hdr.Ttl < ttl {
+				ttl = v.Hdr.Ttl
+			}
+		case *dns.DNAME:
+			proof = append(proof, v)
+			if ttl == 0 || v.Hdr.Ttl < ttl {
+				ttl = v.Hdr.Ttl
+			}
 		default:
 			log.Warnf("unexpected DNS resource record %+v", rr)
 		}
 	}
 
-	return result, ttl, nil
+	return result, proof, ttl, nil
 }
