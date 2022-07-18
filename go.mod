@@ -1,4 +1,4 @@
-module github.com/libp2p/go-dnssec-resolver
+module github.com/iowaguy/go-dnssec-resolver
 
 go 1.17
 

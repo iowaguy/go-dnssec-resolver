@@ -119,7 +119,6 @@ func doRequestAAAA(ctx context.Context, url string, domain string) ([]net.IPAddr
 	return result, ttl, nil
 }
 
-
 func doRequestTXTSecure(ctx context.Context, url string, domain string) ([]string, []dns.RR, uint32, error) {
 	fqdn := dns.Fqdn(domain)
 	m := new(dns.Msg)

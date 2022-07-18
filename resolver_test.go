@@ -13,6 +13,7 @@ import (
 )
 
 type void struct{}
+
 var member void
 
 func mockDNSHeader(name string, rrType uint16) dns.RR_Header {
@@ -43,11 +44,11 @@ func mockDNSAnswerAAAA(name string, ip net.IP) *dns.Msg {
 
 func mockDNSSECAnswerTXT(name string, records []string) *dns.Msg {
 	dnsKey := &dns.DNSKEY{
-				Hdr:  mockDNSHeader(name, dns.TypeDNSKEY),
-				Flags: 1,
-				Protocol: 1,
-				Algorithm: 1,
-			}
+		Hdr:       mockDNSHeader(name, dns.TypeDNSKEY),
+		Flags:     1,
+		Protocol:  1,
+		Algorithm: 1,
+	}
 	// Using this function to generate a valid public key
 	_, _ = dnsKey.Generate(1024)
 	return &dns.Msg{
@@ -205,7 +206,6 @@ func TestSecureLookupTXT(t *testing.T) {
 	if !sameTXT(txt, txt2) {
 		t.Fatal("expected cache to contain the same txt entries")
 	}
-
 
 	// check the cache
 	proof2, ok := r.getCachedProof(domain)
