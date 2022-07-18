@@ -14,14 +14,16 @@ import (
 )
 
 type Resolver struct {
-	mx  sync.Mutex
-	url string
+	proof chan proofEntry
+	mx    sync.Mutex
+	url   string
 
 	// RR cache
-	ipCache     map[string]ipAddrEntry
-	txtCache    map[string]txtEntry
-	proofCache  map[string]proofEntry
-	maxCacheTTL time.Duration
+	ipCache       map[string]ipAddrEntry
+	txtCache      map[string]txtEntry
+	proofCache    map[string]proofEntry
+	dnssecEnabled bool
+	maxCacheTTL   time.Duration
 }
 
 type ipAddrEntry struct {
@@ -57,17 +59,26 @@ func WithCacheDisabled() Option {
 	}
 }
 
+func WithDNSSECEnabled() Option {
+	return func(tr *Resolver) error {
+		tr.dnssecEnabled = true
+		tr.proof = make(chan proofEntry, 1)
+		return nil
+	}
+}
+
 func NewResolver(url string, opts ...Option) (*Resolver, error) {
 	if !strings.HasPrefix(url, "https:") {
 		url = "https://" + url
 	}
 
 	r := &Resolver{
-		url:         url,
-		ipCache:     make(map[string]ipAddrEntry),
-		txtCache:    make(map[string]txtEntry),
-		proofCache:  make(map[string]proofEntry),
-		maxCacheTTL: time.Duration(math.MaxUint32) * time.Second,
+		url:           url,
+		ipCache:       make(map[string]ipAddrEntry),
+		txtCache:      make(map[string]txtEntry),
+		proofCache:    make(map[string]proofEntry),
+		maxCacheTTL:   time.Duration(math.MaxUint32) * time.Second,
+		dnssecEnabled: false,
 	}
 
 	for _, o := range opts {
@@ -123,25 +134,35 @@ func (r *Resolver) LookupIPAddr(ctx context.Context, domain string) (result []ne
 }
 
 // Get TXT record using DNSSEC
-func (r *Resolver) SecureLookupTXT(ctx context.Context, domain string) ([]string, []dns.RR, error) {
+func (r *Resolver) secureLookupTXT(ctx context.Context, domain string) ([]string, error) {
 	txt, txtOk := r.getCachedTXT(domain)
 	proof, proofOk := r.getCachedProof(domain)
 	if !txtOk || !proofOk {
 		txt, proof, ttl, err := doRequestTXTSecure(ctx, r.url, domain)
 		if err != nil {
-			return nil, nil, err
+			return nil, err
 		}
 
 		cacheTTL := minTTL(time.Duration(ttl)*time.Second, r.maxCacheTTL)
 		r.cacheTXT(domain, txt, cacheTTL)
 		r.cacheProof(domain, proof, cacheTTL)
-		return txt, proof, nil
+
+		r.proof <- proofEntry{proof, time.Now().Add(cacheTTL)}
+		return txt, nil
 	}
 
-	return txt, proof, nil
+	r.proof <- proofEntry{proof, time.Now()}
+	return txt, nil
 }
 
 func (r *Resolver) LookupTXT(ctx context.Context, domain string) ([]string, error) {
+	if r.dnssecEnabled {
+		return r.secureLookupTXT(ctx, domain)
+	}
+	return r.insecureLookupTXT(ctx, domain)
+}
+
+func (r *Resolver) insecureLookupTXT(ctx context.Context, domain string) ([]string, error) {
 	result, ok := r.getCachedTXT(domain)
 	if ok {
 		return result, nil
@@ -252,4 +273,8 @@ func minTTL(a, b time.Duration) time.Duration {
 		return a
 	}
 	return b
+}
+
+func (r *Resolver) GetProof() []dns.RR {
+	return (<-r.proof).proof
 }

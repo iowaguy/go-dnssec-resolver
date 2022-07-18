@@ -179,13 +179,14 @@ func TestSecureLookupTXT(t *testing.T) {
 	})
 	defer resolver.Close()
 
-	r, err := NewResolver("")
+	r, err := NewResolver("", WithDNSSECEnabled())
 	if err != nil {
 		t.Fatal("resolver cannot be initialised")
 	}
 	r.url = resolver.URL
 
-	txt, proof, err := r.SecureLookupTXT(context.Background(), domain)
+	txt, err := r.LookupTXT(context.Background(), domain)
+	proof := r.GetProof()
 	if err != nil {
 		t.Fatal(err)
 	}
