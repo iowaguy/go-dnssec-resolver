@@ -185,6 +185,12 @@ func TestSecureLookupTXT(t *testing.T) {
 	}
 	r.url = resolver.URL
 
+	// Make sure that GetProof() doesn't block if the lookup hasn't been done yet
+	_, err = r.GetProof()
+	if err == nil {
+		t.Fatal("should have received an error")
+	}
+
 	_, err = r.LookupTXT(context.Background(), domain)
 	if err != nil {
 		t.Fatal(err)
@@ -208,7 +214,7 @@ func TestSecureLookupTXT(t *testing.T) {
 
 	// check the proof
 	if proof == nil {
-		t.Fatal("Response should include a valid proof")
+		t.Fatal("response should include a valid proof")
 	}
 
 	// check the cache
