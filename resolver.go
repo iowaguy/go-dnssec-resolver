@@ -2,6 +2,7 @@ package doh
 
 import (
 	"context"
+	"errors"
 	"math"
 	"net"
 	"strings"
@@ -147,12 +148,27 @@ func (r *Resolver) secureLookupTXT(ctx context.Context, domain string) ([]string
 		r.cacheTXT(domain, txt, cacheTTL)
 		r.cacheProof(domain, proof, cacheTTL)
 
+		r.clearOldProof()
+
+		// Add new proof to channel
 		r.proof <- proofEntry{proof, time.Now().Add(cacheTTL)}
 		return txt, nil
 	}
 
+	r.clearOldProof()
 	r.proof <- proofEntry{proof, time.Now()}
 	return txt, nil
+}
+
+// Make sure there is nothing in the channel, otherwise it will block. If there
+// is something in the channel, the consumer wasn't interested in it as
+// evidenced by them calling for a new TXT and proof.
+func (r *Resolver) clearOldProof() {
+	select {
+	case <-r.proof:
+	default:
+	}
+	return
 }
 
 func (r *Resolver) LookupTXT(ctx context.Context, domain string) ([]string, error) {
@@ -275,6 +291,11 @@ func minTTL(a, b time.Duration) time.Duration {
 	return b
 }
 
-func (r *Resolver) GetProof() []dns.RR {
-	return (<-r.proof).proof
+func (r *Resolver) GetProof() ([]dns.RR, error) {
+	select {
+	case p := <-r.proof:
+		return p.proof, nil
+	default:
+		return nil, errors.New("No proof available. Are you using the DNSSEC enabled resolver?")
+	}
 }

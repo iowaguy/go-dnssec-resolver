@@ -186,10 +186,19 @@ func TestSecureLookupTXT(t *testing.T) {
 	r.url = resolver.URL
 
 	txt, err := r.LookupTXT(context.Background(), domain)
-	proof := r.GetProof()
+
+	// This second lookup is to make sure that the call doesn't block if the
+	// proof has not been read from the channel yet.
+	txt, err = r.LookupTXT(context.Background(), domain)
 	if err != nil {
 		t.Fatal(err)
 	}
+
+	proof, err := r.GetProof()
+	if err != nil {
+		t.Fatal(err)
+	}
+
 	if len(txt) == 0 {
 		t.Fatal("got no TXT entries")
 	}
