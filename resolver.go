@@ -44,6 +44,10 @@ type proofEntry struct {
 
 type Option func(*Resolver) error
 
+type key int
+
+const dnssecProofChan key = 0
+
 // Specifies the maximum time entries are valid in the cache
 // A maxCacheTTL of zero is equivalent to `WithCacheDisabled`
 func WithMaxCacheTTL(maxCacheTTL time.Duration) Option {
@@ -69,7 +73,7 @@ func WithDNSSECEnabled() Option {
 }
 
 func WithContextDNSSECWrapper(ctx context.Context) context.Context {
-	return context.WithValue(ctx, "dnssec-proof-chan", make(chan proofEntry, 1))
+	return context.WithValue(ctx, dnssecProofChan, make(chan proofEntry, 1))
 }
 
 func NewResolver(url string, opts ...Option) (*Resolver, error) {
@@ -328,6 +332,6 @@ func getProofFromChannel(c chan proofEntry) ([]dns.RR, error) {
 }
 
 func getProofChanFromContext(ctx context.Context) (chan proofEntry, bool) {
-	c, ok := ctx.Value("dnssec-proof-chan").(chan proofEntry)
+	c, ok := ctx.Value(dnssecProofChan).(chan proofEntry)
 	return c, ok
 }
