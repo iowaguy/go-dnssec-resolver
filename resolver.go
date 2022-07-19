@@ -68,6 +68,10 @@ func WithDNSSECEnabled() Option {
 	}
 }
 
+func WithContextDNSSECWrapper(ctx context.Context) context.Context {
+	return context.WithValue(ctx, "dnssec-proof-chan", make(chan proofEntry, 1))
+}
+
 func NewResolver(url string, opts ...Option) (*Resolver, error) {
 	if !strings.HasPrefix(url, "https:") {
 		url = "https://" + url
@@ -148,24 +152,37 @@ func (r *Resolver) secureLookupTXT(ctx context.Context, domain string) ([]string
 		r.cacheTXT(domain, txt, cacheTTL)
 		r.cacheProof(domain, proof, cacheTTL)
 
-		r.clearOldProof()
+		if c, ok := getProofChanFromContext(ctx); ok {
+			r.clearOldProof(c)
+			// Add new proof to channel
+			c <- proofEntry{proof, time.Now().Add(cacheTTL)}
+		} else {
+			r.clearOldProof(r.proof)
+			// Add new proof to channel
+			r.proof <- proofEntry{proof, time.Now().Add(cacheTTL)}
+		}
 
-		// Add new proof to channel
-		r.proof <- proofEntry{proof, time.Now().Add(cacheTTL)}
 		return txt, nil
 	}
 
-	r.clearOldProof()
-	r.proof <- proofEntry{proof, time.Now()}
+	if c, ok := getProofChanFromContext(ctx); ok {
+		r.clearOldProof(c)
+		// Add new proof to channel
+		c <- proofEntry{proof, time.Now()}
+	} else {
+		r.clearOldProof(r.proof)
+		// Add new proof to channel
+		r.proof <- proofEntry{proof, time.Now()}
+	}
 	return txt, nil
 }
 
 // Make sure there is nothing in the channel, otherwise it will block. If there
 // is something in the channel, the consumer wasn't interested in it as
 // evidenced by them calling for a new TXT and proof.
-func (r *Resolver) clearOldProof() {
+func (r *Resolver) clearOldProof(c chan proofEntry) {
 	select {
-	case <-r.proof:
+	case <-c:
 	default:
 	}
 }
@@ -291,10 +308,26 @@ func minTTL(a, b time.Duration) time.Duration {
 }
 
 func (r *Resolver) GetProof() ([]dns.RR, error) {
+	return getProofFromChannel(r.proof)
+}
+
+func GetProofFromContext(ctx context.Context) ([]dns.RR, error) {
+	if proofChan, ok := getProofChanFromContext(ctx); ok {
+		return getProofFromChannel(proofChan)
+	}
+	return nil, errors.New("no proof available, have you enabled the context wrapper?")
+}
+
+func getProofFromChannel(c chan proofEntry) ([]dns.RR, error) {
 	select {
-	case p := <-r.proof:
+	case p := <-c:
 		return p.proof, nil
 	default:
-		return nil, errors.New("no proof available, are you using the DNSSEC enabled resolver?")
+		return nil, errors.New("no proof available, have you enabled DNSSEC?")
 	}
+}
+
+func getProofChanFromContext(ctx context.Context) (chan proofEntry, bool) {
+	c, ok := ctx.Value("dnssec-proof-chan").(chan proofEntry)
+	return c, ok
 }

@@ -236,6 +236,87 @@ func TestSecureLookupTXT(t *testing.T) {
 	}
 }
 
+func TestSecureLookupTXTFromContext(t *testing.T) {
+	domain := "example.com"
+	resolver := mockDNSSECResolver(t, map[uint16]*dns.Msg{
+		dns.TypeTXT: mockDNSSECAnswerTXT(dns.Fqdn(domain), []string{"dnslink=/ipns/example.com"}),
+	})
+	defer resolver.Close()
+
+	ctx := context.Background()
+
+	r, err := NewResolver("", WithDNSSECEnabled())
+	if err != nil {
+		t.Fatal("resolver cannot be initialised")
+	}
+	r.url = resolver.URL
+
+	ctx = WithContextDNSSECWrapper(ctx)
+
+	// Make sure that GetProof() doesn't block if the lookup hasn't been done yet
+	_, err = r.GetProof()
+	if err == nil {
+		t.Fatal("should have received an error")
+	}
+
+	// Make sure that GetProofFromContext() doesn't block if the lookup hasn't
+	// been done yet.
+	_, err = GetProofFromContext(ctx)
+	if err == nil {
+		t.Fatal("should have received an error")
+	}
+
+	_, err = r.LookupTXT(ctx, domain)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// This second lookup is to make sure that the call doesn't block if the
+	// proof has not been read from the channel yet.
+	txt, err := r.LookupTXT(ctx, domain)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// This should throw an error, because the proof should be passed with the context.
+	_, err = r.GetProof()
+	if err == nil {
+		t.Fatal("should have received an error")
+	}
+
+	proof, err := GetProofFromContext(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if len(txt) == 0 {
+		t.Fatal("got no TXT entries")
+	}
+
+	// check the proof
+	if proof == nil {
+		t.Fatal("response should include a valid proof")
+	}
+
+	// check the cache
+	txt2, ok := r.getCachedTXT(domain)
+	if !ok {
+		t.Fatal("expected cache to be populated")
+	}
+	if !sameTXT(txt, txt2) {
+		t.Fatal("expected cache to contain the same txt entries")
+	}
+
+	// check the cache
+	proof2, ok := r.getCachedProof(domain)
+	if !ok {
+		t.Fatal("expected cache to be populated")
+	}
+	if !sameProof(proof, proof2) {
+		t.Fatal("expected cache to contain the same txt entries")
+	}
+}
+
 func TestLookupCache(t *testing.T) {
 	domain := "example.com"
 	resolver := mockDNSSECResolver(t, map[uint16]*dns.Msg{
