@@ -168,7 +168,6 @@ func (r *Resolver) clearOldProof() {
 	case <-r.proof:
 	default:
 	}
-	return
 }
 
 func (r *Resolver) LookupTXT(ctx context.Context, domain string) ([]string, error) {
@@ -296,6 +295,6 @@ func (r *Resolver) GetProof() ([]dns.RR, error) {
 	case p := <-r.proof:
 		return p.proof, nil
 	default:
-		return nil, errors.New("No proof available. Are you using the DNSSEC enabled resolver?")
+		return nil, errors.New("no proof available, are you using the DNSSEC enabled resolver?")
 	}
 }
